@@ -10,6 +10,7 @@ import numbers
 from collections import Iterable
 
 import numpy as np
+from sklearn.externals import joblib
 
 from ..callbacks import check_callback
 from ..callbacks import VerboseCallback
@@ -22,7 +23,7 @@ def base_minimize(func, dimensions, base_estimator,
                   acq_func="EI", acq_optimizer="lbfgs",
                   x0=None, y0=None, random_state=None, verbose=False,
                   callback=None, n_points=10000, n_restarts_optimizer=5,
-                  xi=0.01, kappa=1.96, n_jobs=1):
+                  xi=0.01, kappa=1.96, n_jobs=1, n_jobs_for_points=1):
     """
     Parameters
     ----------
@@ -164,6 +165,9 @@ def base_minimize(func, dimensions, base_estimator,
     specs = {"args": copy.copy(inspect.currentframe().f_locals),
              "function": inspect.currentframe().f_code.co_name}
 
+    if n_jobs_for_points != 1:
+        n_jobs = 1
+        
     acq_optimizer_kwargs = {
         "n_points": n_points, "n_restarts_optimizer": n_restarts_optimizer,
         "n_jobs": n_jobs}
@@ -240,17 +244,35 @@ def base_minimize(func, dimensions, base_estimator,
         if eval_callbacks(callbacks, result):
             return result
 
-    # Bayesian optimization loop
-    for n in range(n_calls):
-        next_x = optimizer.ask()
+    if n_jobs_for_points != 1:
 
-        # no need to fit a model on the last iteration
-        fit_model = n < n_calls - 1
-        next_y = func(next_x)
-        result = optimizer.tell(next_x, next_y, fit=fit_model)
-        result.specs = specs
+        print('Evalating points in parallel with n_jobs_for_points: %i' % n_jobs)
 
-        if eval_callbacks(callbacks, result):
-            break
+        pool = joblib.Parallel(n_jobs=n_jobs_for_points)
 
+        # Bayesian optimization loop (parallel version)
+        for n in range(n_calls):
+            next_x = optimizer.ask(n_points=n_jobs_for_points)
+
+            # no need to fit a model on the last iteration
+            fit_model = n < n_calls - 1
+            next_y = pool(joblib.delayed(func)(v) for v in next_x)  # evaluate points in parallel
+            result = optimizer.tell(next_x, next_y, fit=fit_model)
+            result.specs = specs
+
+            if eval_callbacks(callbacks, result):
+                break
+    else:
+         # Bayesian optimization loop
+        for n in range(n_calls):
+            next_x = optimizer.ask()
+
+            # no need to fit a model on the last iteration
+            fit_model = n < n_calls - 1
+            next_y = func(next_x)
+            result = optimizer.tell(next_x, next_y, fit=fit_model)
+            result.specs = specs
+
+            if eval_callbacks(callbacks, result):
+                break
     return result
