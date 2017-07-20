@@ -3,7 +3,7 @@ Abstraction for optimizers.
 
 It is sufficient that one re-implements the base estimator.
 """
-
+import time
 import copy
 import inspect
 import numbers
@@ -245,23 +245,57 @@ def base_minimize(func, dimensions, base_estimator,
             return result
 
     if n_jobs_for_points != 1:
+        
 
-        print('Evalating points in parallel with n_jobs_for_points: %i' % n_jobs)
+        #n_max_points = n_jobs_for_points
+        print('Evalating points in parallel with n_jobs_for_points: %i' % n_jobs_for_points)
 
         pool = joblib.Parallel(n_jobs=n_jobs_for_points)
 
+        file = open('results/full-runs/objective.txt', 'w+')
+        file.close()
         # Bayesian optimization loop (parallel version)
         for n in range(n_calls):
-            next_x = optimizer.ask(n_points=n_jobs_for_points)
+            file = open('results/full-runs/objective.txt', 'a')
+            file.write('iter {} \n'.format(n))
+            file.close()
+            not_generate_x = True 
+            print('i iter {}'.format(n))
+            while(not_generate_x and n_jobs_for_points > 0):
+                print('try {}'.format(n_jobs_for_points))
+                #time.sleep(3)
+                try: 
+                    next_x = optimizer.ask(n_points=n_jobs_for_points)
+                    #next_x = list(set(list(next_x)))
+                    
+                    next_x = [ tuple(next_xi) for next_xi in next_x]
+                    print(type(next_x))
+                    print(type(next_x[0]))
+                    next_x = list(set(next_x))
+                    print('next_x',next_x)
+                    file = open('results/full-runs/objective.txt', 'a')
+                    file.write('x {}\n'.format(next_x))
+                    file.close
+                    #time.sleep(5)
+                    not_generate_x = False
+                except np.linalg.linalg.LinAlgError:
+                    n_jobs_for_points = int(n_jobs_for_points/2.0)
 
             # no need to fit a model on the last iteration
             fit_model = n < n_calls - 1
             next_y = pool(joblib.delayed(func)(v) for v in next_x)  # evaluate points in parallel
+            print('next_y',next_y)
+            file = open('results/full-runs/objective.txt', 'a')
+            file.write('y {}\n'.format(next_y))
+            file.close()
+            #time.sleep(5)
             result = optimizer.tell(next_x, next_y, fit=fit_model)
-            result.specs = specs
+            result.specs = specs    
 
             if eval_callbacks(callbacks, result):
                 break
+
+
     else:
          # Bayesian optimization loop
         for n in range(n_calls):
